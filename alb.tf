@@ -5,7 +5,7 @@ resource "aws_lb" "test-lb" {
   subnets            = module.vpc.public_subnets
   tags = {
     "env"       = "dev"
-    "createdBy" = "mkerimova"
+    "createdBy" = "sumeet"
   }
   security_groups = [aws_security_group.lb.id]
 }
