@@ -1,0 +1,23 @@
+costcenter: "12345678"
+deploymentname: "cloud infra ci"
+
+ec2:
+  app1_server:
+    size: "t2.small"
+    max_count: 2
+    min_count: 1
+    desired_count: 2
+  app2_server:
+    size: "t2.micro"
+    max_count: 2
+    min_count: 1
+    desired_count: 2
+
+
+alb:
+  name: app1-alb
+
+firehose:
+  name: "eventlog-win-firehose"
+  buffering_interval: 60  #in seconds
+  buffering_size: 1 #in mb

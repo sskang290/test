@@ -1,0 +1,108 @@
+<powershell>
+Param(
+    [ValidateSet("prod", "beta", "test")]
+    [string] $environment = 'prod',
+    [string] $version,
+    [string] $baseurl
+)
+
+# Self-elevate the script if required.
+if (-Not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] 'Administrator')) {
+    if ([int](Get-CimInstance -Class Win32_OperatingSystem | Select-Object -ExpandProperty BuildNumber) -ge 6000) {
+        $CommandLine = '-File "' + $MyInvocation.MyCommand.Path + '" ' + $MyInvocation.UnboundArguments
+        Start-Process -FilePath PowerShell.exe -Verb Runas -ArgumentList $CommandLine
+        Exit
+    }
+}
+
+# Allows input to change base url. Useful for testing.
+if ($baseurl) {
+    if (!$baseUrl.EndsWith("/")) {
+        throw "Invalid baseurl param value. Must end with a trailing forward slash ('/')"
+    }
+
+    $kinesistapBaseUrl = $baseurl
+} else {
+    $kinesistapBaseUrl = "https://s3-us-west-2.amazonaws.com/kinesis-agent-windows/downloads/"
+}
+
+Write-Host "Using $kinesistapBaseUrl as base url"
+
+$webClient = New-Object System.Net.WebClient
+
+try {
+    $packageJson = $webClient.DownloadString($kinesistapBaseUrl + 'packages.json' + '?_t=' + [System.DateTime]::Now.Ticks) | ConvertFrom-Json
+} catch {
+    throw "Downloading package list failed."
+}
+
+
+if ($version) {
+    $kinesistapPackage = $packageJson.packages | Where-Object { $_.packageName -eq "AWSKinesisTap.$version.nupkg" }
+
+    if ($null -eq $kinesistapPackage) {
+        throw "No package found matching input version $version"
+    }
+} else {
+    $packageJson = $packageJson.packages | Where-Object { $_.packageName -match ".nupkg" }
+    $kinesistapPackage = $packageJson[0]
+}
+
+$packageName = $kinesistapPackage.packageName
+$checksum = $kinesistapPackage.checksum
+
+#Create %TEMP%/kinesistap if not exists
+$kinesistapTempDir = Join-Path $env:TEMP 'kinesistap'
+if (![System.IO.Directory]::Exists($kinesistapTempDir)) {[void][System.IO.Directory]::CreateDirectory($kinesistapTempDir)}
+
+#Download KinesisTap.x.x.x.x.nupkg package
+$kinesistapNupkgPath = Join-Path $kinesistapTempDir $packageName
+$webClient.DownloadFile($kinesistapBaseUrl + $packageName, $kinesistapNupkgPath)
+$kinesistapUnzipPath = $kinesistapNupkgPath.Replace('.nupkg', '')
+
+# Calculates hash of downloaded file. Downlevel compatible using .Net hashing on PS < 4
+if ($PSVersionTable.PSVersion.Major -ge 4) {
+    $calculatedHash = Get-FileHash $kinesistapNupkgPath -Algorithm SHA256
+    $hashAsString = $calculatedHash.Hash.ToLower()
+} else {
+    $sha256 = New-Object System.Security.Cryptography.SHA256CryptoServiceProvider
+    $calculatedHash = [System.BitConverter]::ToString($sha256.ComputeHash([System.IO.File]::ReadAllBytes($kinesistapNupkgPath)))
+    $hashAsString = $calculatedHash.Replace("-", "").ToLower()
+}
+
+if ($checksum -eq $hashAsString) {
+	Write-Host 'Local file hash matches checksum.' -ForegroundColor Green
+} else {
+	throw ("Get-FileHash does not match! Package may be corrupted.")
+}
+
+#Delete Unzip path if not empty
+if ([System.IO.Directory]::Exists($kinesistapUnzipPath)) {Remove-Item –Path $kinesistapUnzipPath -Recurse -Force}
+
+#Unzip KinesisTap.x.x.x.x.nupkg package
+$null = [System.Reflection.Assembly]::LoadWithPartialName('System.IO.Compression.FileSystem')
+[System.IO.Compression.ZipFile]::ExtractToDirectory($kinesistapNupkgPath, $kinesistapUnzipPath)
+
+#Execute chocolaeyInstall.ps1 in the package and wait for completion.
+$installScript = Join-Path $kinesistapUnzipPath '\tools\chocolateyInstall.ps1'
+& $installScript
+
+# Verify service installed.
+$serviceName = 'AWSKinesisTap'
+$service = Get-Service -Name $serviceName -ErrorAction Ignore
+if ($null -eq $service) {
+    throw ("Service not installed correctly.")
+} else {
+    Write-Host "Kinesis Tap Installed." -ForegroundColor Green
+    Write-Host "After configuring run the following to start the service: Start-Service -Name $serviceName." -ForegroundColor Green
+}
+
+#install aws cli
+msiexec.exe /i https://awscli.amazonaws.com/AWSCLIV2.msi /qn
+
+</powershell>
+
+aws s3 cp s3://assign-kinesis-config/appsettings.json  "C:\Program Files\Amazon\AWSKinesisTap\appsettings.json"
+
+powershell.exe "Restart-Service -Name AWSKinesisTap"
+

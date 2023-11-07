@@ -1,0 +1,46 @@
+{
+    "Sources": [
+        {
+            "Id": "ApplicationLog",
+            "SourceType": "WindowsEventLogSource",
+            "LogName": "Application"
+        },
+        {
+            "Id": "SecurityLog",
+            "SourceType": "WindowsEventLogSource",
+            "LogName": "Security"
+        },
+        {
+            "Id": "SystemLog",
+            "SourceType": "WindowsEventLogSource",
+            "LogName": "System"
+        }
+    ],
+    "Sinks": [
+        {
+            "Id": "EventLogSink",
+            "SinkType": "KinesisFirehose",
+            "StreamName": "eventlog-win-firehose",
+            "Format": "json",
+            "Region": "ap-southeast-1"
+        }
+
+    ],
+    "Pipes": [
+        {
+            "Id": "ApplicationLogToFirehose",
+            "SourceRef": "ApplicationLog",
+            "SinkRef": "EventLogSink"
+        },
+        {
+            "Id": "SecurityLogToFirehose",
+            "SourceRef": "SecurityLog",
+            "SinkRef": "EventLogSink"
+        },
+        {
+            "Id": "SystemLogToFirehose",
+            "SourceRef": "SystemLog",
+            "SinkRef": "EventLogSink"
+        }
+    ]
+}

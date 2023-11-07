@@ -1,0 +1,3 @@
+terraform_profile: "sandbox"
+contact: "personA@abc.com"
+deploymentrepo: "test/assignment/cloud-infra"
